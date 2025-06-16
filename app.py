@@ -1,4 +1,3 @@
-# app.py v.MVP 1.1 - Com correção .strip()
 import os
 from flask import Flask, jsonify, request
 from dotenv import load_dotenv
