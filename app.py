@@ -1,4 +1,3 @@
-# Forçando um novo deploy na Railway - 16/06
 import os
 from flask import Flask, jsonify, request
 from dotenv import load_dotenv
