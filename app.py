@@ -1,4 +1,4 @@
-# app.py v3.3 - Configuração CORS Explícita
+# app.py v3.4 - Com CORS aberto para fins de diagnóstico
 import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -10,22 +10,17 @@ from functools import wraps
 load_dotenv()
 app = Flask(__name__)
 
-# --- AQUI ESTÁ A CORREÇÃO FINAL ---
-# Configuração explícita do CORS para aceitar os cabeçalhos e métodos necessários
-# para requisições complexas com autenticação.
-CORS(app, resources={
-    r"/api/*": {
-        "origins": "https://fluxo-plataforma-de-agendamento-automatizado.lovable.app",
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Authorization", "Content-Type"]
-    }
-})
-# --- FIM DA CORREÇÃO ---
+# --- ALTERAÇÃO PARA TESTE ---
+# Habilita o CORS de forma global e permissiva para todos os domínios e rotas.
+# Isto é apenas para diagnosticar o problema.
+CORS(app)
+# --- FIM DA ALTERAÇÃO ---
 
 url: str = os.environ.get("SUPABASE_URL").strip()
 key: str = os.environ.get("SUPABASE_KEY").strip()
 supabase: Client = create_client(url, key)
 
+# ... (Todo o resto do código continua exatamente igual) ...
 def auth_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -46,8 +41,6 @@ def auth_required(f):
             return jsonify({"error": "Erro interno na autenticação", "details": str(e)}), 500
         return f(*args, **kwargs)
     return decorated_function
-
-# --- (O RESTO DO CÓDIGO CONTINUA IGUAL) ---
 @app.route("/")
 def index(): return "Bem-vindo à API da plataforma Fluxo!"
 @app.route("/api/health")
@@ -76,7 +69,6 @@ def delete_service(service_id, business_id):
     response = supabase.table('services').delete().eq('id', service_id).eq('business_id', business_id).execute()
     if not response.data: return jsonify({"error": "Serviço não encontrado ou não pertence a este negócio"}), 404
     return jsonify({"message": "Serviço apagado com sucesso"}), 200
-# ... (e assim por diante para todas as outras rotas)
 @app.route("/api/professionals", methods=['GET'])
 @auth_required
 def get_professionals(business_id):
@@ -112,6 +104,5 @@ def get_availability(business_id):
     data = request.get_json()
     # ... Lógica complexa ...
     return jsonify({"message": "Lógica de disponibilidade a ser implementada"}), 200
-
 if __name__ == '__main__':
     app.run(debug=True)
