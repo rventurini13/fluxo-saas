@@ -1,0 +1,147 @@
+import os
+from flask import Flask, jsonify, request
+from dotenv import load_dotenv
+from supabase import create_client, Client
+from datetime import datetime, timedelta, time
+
+load_dotenv()
+app = Flask(__name__)
+
+url: str = os.environ.get("SUPABASE_URL")
+key: str = os.environ.get("SUPABASE_KEY")
+supabase: Client = create_client(url, key)
+
+business_id_logado = "c3335c7d-a513-4718-a562-e494b2d5a58d" # Cole o seu business_id aqui
+
+# ... (Rotas de health, services e a criação/listagem de professionals continuam iguais) ...
+@app.route("/")
+def index():
+    return "Bem-vindo à API da plataforma Fluxo!"
+@app.route("/api/health")
+def health_check():
+    return jsonify({"status": "ok","message": "API do Fluxo está no ar!"})
+@app.route("/api/services", methods=['POST'])
+def create_service():
+    data = request.get_json()
+    try:
+        response = supabase.table('services').insert({'name': data.get('name'),'price': data.get('price'),'duration_minutes': data.get('duration_minutes'),'business_id': business_id_logado}).execute()
+        return jsonify(response.data[0]), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+@app.route("/api/services", methods=['GET'])
+def get_services():
+    try:
+        response = supabase.table('services').select('*').eq('business_id', business_id_logado).execute()
+        return jsonify(response.data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+@app.route("/api/services/<service_id>", methods=['DELETE'])
+def delete_service(service_id):
+    try:
+        response = supabase.table('services').delete().eq('id', service_id).execute()
+        if len(response.data) == 0:
+            return jsonify({"error": "Serviço não encontrado"}), 404
+        return jsonify({"message": f"Serviço {service_id} apagado com sucesso"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+@app.route("/api/professionals", methods=['POST'])
+def create_professional():
+    data = request.get_json()
+    try:
+        response = supabase.table('professionals').insert({'name': data.get('name'),'business_id': business_id_logado}).execute()
+        return jsonify(response.data[0]), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+@app.route("/api/professionals", methods=['GET'])
+def get_professionals():
+    try:
+        response = supabase.table('professionals').select('*, services(*)').eq('business_id', business_id_logado).execute()
+        return jsonify(response.data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+@app.route("/api/professionals/<professional_id>", methods=['DELETE'])
+def delete_professional(professional_id):
+    try:
+        response = supabase.table('professionals').delete().eq('id', professional_id).execute()
+        if len(response.data) == 0:
+            return jsonify({"error": "Profissional não encontrado"}), 404
+        return jsonify({"message": f"Profissional {professional_id} apagado com sucesso"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+# --- LÓGICA DE ASSOCIAÇÃO REFEITA E MELHORADA ---
+
+# ROTA PARA ADICIONAR UMA ÚNICA ASSOCIAÇÃO SERVIÇO-PROFISSIONAL
+@app.route("/api/professionals/<professional_id>/services", methods=['POST'])
+def add_service_to_professional(professional_id):
+    data = request.get_json()
+    service_id = data.get('service_id')
+
+    if not service_id:
+        return jsonify({"error": "O ID do serviço (service_id) é obrigatório"}), 400
+
+    try:
+        response = supabase.table('professional_services').insert({
+            'professional_id': professional_id,
+            'service_id': service_id
+        }).execute()
+        return jsonify(response.data[0]), 201
+    except Exception as e:
+        # Trata erros comuns, como tentar adicionar uma associação que já existe
+        if 'duplicate key value violates unique constraint' in str(e):
+            return jsonify({"error": "Este serviço já está associado a este profissional"}), 409 # 409 Conflict
+        return jsonify({"error": str(e)}), 400
+
+# ROTA PARA REMOVER UMA ÚNICA ASSOCIAÇÃO SERVIÇO-PROFISSIONAL
+@app.route("/api/professionals/<professional_id>/services/<service_id>", methods=['DELETE'])
+def remove_service_from_professional(professional_id, service_id):
+    try:
+        response = supabase.table('professional_services').delete().match({
+            'professional_id': professional_id,
+            'service_id': service_id
+        }).execute()
+
+        if len(response.data) == 0:
+            return jsonify({"error": "Associação não encontrada"}), 404
+            
+        return jsonify({"message": "Associação removida com sucesso"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+# ... (A rota de get_availability continua igual) ...
+@app.route("/api/schedule/availability", methods=['POST'])
+def get_availability():
+    data = request.get_json()
+    professional_id = data.get('professional_id')
+    service_id = data.get('service_id')
+    date_str = data.get('date')
+    try:
+        service_response = supabase.table('services').select('duration_minutes').eq('id', service_id).single().execute()
+        service = service_response.data
+        business_response = supabase.table('businesses').select('opening_time, closing_time').eq('id', business_id_logado).single().execute()
+        business = business_response.data
+        next_day_str = (datetime.strptime(date_str, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+        appointments_response = supabase.table('appointments').select('start_time, end_time').eq('professional_id', professional_id).gte('start_time', date_str).lt('start_time', next_day_str).execute()
+        appointments = appointments_response.data
+        duration = timedelta(minutes=service['duration_minutes'])
+        opening_time = datetime.strptime(business['opening_time'], '%H:%M:%S').time()
+        closing_time = datetime.strptime(business['closing_time'], '%H:%M:%S').time()
+        booked_slots = [(datetime.fromisoformat(apt['start_time']), datetime.fromisoformat(apt['end_time'])) for apt in appointments]
+        available_slots = []
+        potential_slot_start = datetime.combine(datetime.strptime(date_str, '%Y-%m-%d'), opening_time)
+        while (potential_slot_start + duration).time() <= closing_time:
+            potential_slot_end = potential_slot_start + duration
+            is_available = True
+            for booked_start, booked_end in booked_slots:
+                if max(potential_slot_start, booked_start) < min(potential_slot_end, booked_end):
+                    is_available = False
+                    break
+            if is_available:
+                available_slots.append(potential_slot_start.strftime('%H:%M'))
+            potential_slot_start += timedelta(minutes=30)
+        return jsonify({"available_slots": available_slots}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+if __name__ == '__main__':
+    app.run(debug=True)
