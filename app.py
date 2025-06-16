@@ -1,3 +1,4 @@
+# app.py v.MVP 1.1 - Com correção .strip()
 import os
 from flask import Flask, jsonify, request
 from dotenv import load_dotenv
@@ -7,13 +8,18 @@ from datetime import datetime, timedelta, time
 load_dotenv()
 app = Flask(__name__)
 
-url: str = os.environ.get("SUPABASE_URL")
-key: str = os.environ.get("SUPABASE_KEY")
+# --- AQUI ESTÁ A CORREÇÃO ---
+# Adicionamos .strip() para remover quaisquer espaços ou quebras de linha
+# que possam ter sido copiados junto com as variáveis de ambiente.
+url: str = os.environ.get("SUPABASE_URL").strip()
+key: str = os.environ.get("SUPABASE_KEY").strip()
+# --- FIM DA CORREÇÃO ---
+
 supabase: Client = create_client(url, key)
 
 business_id_logado = "c3335c7d-a513-4718-a562-e494b2d5a58d" # Cole o seu business_id aqui
 
-# ... (Rotas de health, services e a criação/listagem de professionals continuam iguais) ...
+# ... (O resto do seu código continua exatamente igual) ...
 @app.route("/")
 def index():
     return "Bem-vindo à API da plataforma Fluxo!"
@@ -68,47 +74,28 @@ def delete_professional(professional_id):
         return jsonify({"message": f"Profissional {professional_id} apagado com sucesso"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
-
-# --- LÓGICA DE ASSOCIAÇÃO REFEITA E MELHORADA ---
-
-# ROTA PARA ADICIONAR UMA ÚNICA ASSOCIAÇÃO SERVIÇO-PROFISSIONAL
 @app.route("/api/professionals/<professional_id>/services", methods=['POST'])
 def add_service_to_professional(professional_id):
     data = request.get_json()
     service_id = data.get('service_id')
-
     if not service_id:
         return jsonify({"error": "O ID do serviço (service_id) é obrigatório"}), 400
-
     try:
-        response = supabase.table('professional_services').insert({
-            'professional_id': professional_id,
-            'service_id': service_id
-        }).execute()
+        response = supabase.table('professional_services').insert({'professional_id': professional_id,'service_id': service_id}).execute()
         return jsonify(response.data[0]), 201
     except Exception as e:
-        # Trata erros comuns, como tentar adicionar uma associação que já existe
         if 'duplicate key value violates unique constraint' in str(e):
-            return jsonify({"error": "Este serviço já está associado a este profissional"}), 409 # 409 Conflict
+            return jsonify({"error": "Este serviço já está associado a este profissional"}), 409
         return jsonify({"error": str(e)}), 400
-
-# ROTA PARA REMOVER UMA ÚNICA ASSOCIAÇÃO SERVIÇO-PROFISSIONAL
 @app.route("/api/professionals/<professional_id>/services/<service_id>", methods=['DELETE'])
 def remove_service_from_professional(professional_id, service_id):
     try:
-        response = supabase.table('professional_services').delete().match({
-            'professional_id': professional_id,
-            'service_id': service_id
-        }).execute()
-
+        response = supabase.table('professional_services').delete().match({'professional_id': professional_id,'service_id': service_id}).execute()
         if len(response.data) == 0:
             return jsonify({"error": "Associação não encontrada"}), 404
-            
         return jsonify({"message": "Associação removida com sucesso"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
-
-# ... (A rota de get_availability continua igual) ...
 @app.route("/api/schedule/availability", methods=['POST'])
 def get_availability():
     data = request.get_json()
