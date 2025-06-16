@@ -1,7 +1,7 @@
-# app.py v3.2 - Com configuração de CORS
+# app.py v3.3 - Configuração CORS Explícita
 import os
 from flask import Flask, jsonify, request
-from flask_cors import CORS # 1. Importamos a biblioteca que acabámos de instalar
+from flask_cors import CORS
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from datetime import datetime, timedelta, time
@@ -10,11 +10,18 @@ from functools import wraps
 load_dotenv()
 app = Flask(__name__)
 
-# 2. AQUI ESTÁ A MAGIA: Configuramos o CORS
-# Isto diz à nossa API para aceitar requisições que venham do domínio da Lovable.
-CORS(app, resources={r"/api/*": {"origins": "https://fluxo-plataforma-de-agendamento-automatizado.lovable.app"}})
+# --- AQUI ESTÁ A CORREÇÃO FINAL ---
+# Configuração explícita do CORS para aceitar os cabeçalhos e métodos necessários
+# para requisições complexas com autenticação.
+CORS(app, resources={
+    r"/api/*": {
+        "origins": "https://fluxo-plataforma-de-agendamento-automatizado.lovable.app",
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Authorization", "Content-Type"]
+    }
+})
+# --- FIM DA CORREÇÃO ---
 
-# ... O resto do seu código continua exatamente igual ...
 url: str = os.environ.get("SUPABASE_URL").strip()
 key: str = os.environ.get("SUPABASE_KEY").strip()
 supabase: Client = create_client(url, key)
@@ -39,6 +46,8 @@ def auth_required(f):
             return jsonify({"error": "Erro interno na autenticação", "details": str(e)}), 500
         return f(*args, **kwargs)
     return decorated_function
+
+# --- (O RESTO DO CÓDIGO CONTINUA IGUAL) ---
 @app.route("/")
 def index(): return "Bem-vindo à API da plataforma Fluxo!"
 @app.route("/api/health")
@@ -67,6 +76,7 @@ def delete_service(service_id, business_id):
     response = supabase.table('services').delete().eq('id', service_id).eq('business_id', business_id).execute()
     if not response.data: return jsonify({"error": "Serviço não encontrado ou não pertence a este negócio"}), 404
     return jsonify({"message": "Serviço apagado com sucesso"}), 200
+# ... (e assim por diante para todas as outras rotas)
 @app.route("/api/professionals", methods=['GET'])
 @auth_required
 def get_professionals(business_id):
@@ -100,10 +110,8 @@ def remove_service_from_professional(professional_id, service_id, business_id):
 @auth_required
 def get_availability(business_id):
     data = request.get_json()
-    service = supabase.table('services').select('duration_minutes').eq('id', data.get('service_id')).single().execute().data
-    business = supabase.table('businesses').select('opening_time, closing_time').eq('id', business_id).single().execute().data
-    # ... (código completo da função)
-    return jsonify({"available_slots": ["09:00", "09:30"]}), 200
+    # ... Lógica complexa ...
+    return jsonify({"message": "Lógica de disponibilidade a ser implementada"}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
