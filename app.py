@@ -1,3 +1,4 @@
+# app.py v.MVP 1.2 - Com endpoint de signup
 import os
 from flask import Flask, jsonify, request
 from dotenv import load_dotenv
@@ -7,18 +8,13 @@ from datetime import datetime, timedelta, time
 load_dotenv()
 app = Flask(__name__)
 
-# --- AQUI ESTÁ A CORREÇÃO ---
-# Adicionamos .strip() para remover quaisquer espaços ou quebras de linha
-# que possam ter sido copiados junto com as variáveis de ambiente.
 url: str = os.environ.get("SUPABASE_URL").strip()
 key: str = os.environ.get("SUPABASE_KEY").strip()
-# --- FIM DA CORREÇÃO ---
-
 supabase: Client = create_client(url, key)
 
-business_id_logado = "c3335c7d-a513-4718-a562-e494b2d5a58d" # Cole o seu business_id aqui
+business_id_logado = "c3335c7d-a513-4718-a562-e494b2d5a58d"
 
-# ... (O resto do seu código continua exatamente igual) ...
+# ... (todas as outras rotas que já fizemos) ...
 @app.route("/")
 def index():
     return "Bem-vindo à API da plataforma Fluxo!"
@@ -127,6 +123,26 @@ def get_availability():
             potential_slot_start += timedelta(minutes=30)
         return jsonify({"available_slots": available_slots}), 200
     except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+# --- NOVO ENDPOINT PARA FINALIZAR O CADASTRO ---
+@app.route("/api/on-signup", methods=['POST'])
+def on_supabase_signup():
+    data = request.get_json()
+    try:
+        # Chama a função 'handle_new_user' que criamos no Supabase
+        # passando os argumentos que ela espera
+        supabase.rpc('handle_new_user', {
+            'user_id': data.get('user_id'),
+            'full_name': data.get('full_name'),
+            'business_name': data.get('business_name')
+        }).execute()
+        
+        return jsonify({"message": "Usuário e negócio criados com sucesso!"}), 200 # Mudei para 200 OK
+        
+    except Exception as e:
+        # Se ocorrer um erro, o Supabase desfaz a criação do usuário automaticamente
+        # ou podemos adicionar uma lógica para apagar o usuário aqui se necessário
         return jsonify({"error": str(e)}), 400
 
 if __name__ == '__main__':
