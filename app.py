@@ -1,4 +1,4 @@
-# app.py v12.0 - A Versão Definitiva e Completa
+# app.py v12.1 - Adiciona funcionalidade de UPDATE (PUT) para serviços
 import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -16,7 +16,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 app.url_map.strict_slashes = False
 CORS(app, 
      origins=["https://fluxo-plataforma-de-agendamento-automatizado.lovable.app"], 
-     methods=["GET", "POST", "DELETE", "OPTIONS"],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization"],
      supports_credentials=True
 )
@@ -46,11 +46,11 @@ def auth_required(f):
             user = supabase_admin.auth.get_user(jwt_token).user
             if not user: return jsonify({"error": "Token inválido ou expirado"}), 401
             
-            profile_response = supabase_admin.table('profiles').select('business_id').eq('id', user.id).execute()
-            profiles = profile_response.data
-            if not profiles or len(profiles) != 1:
-                return jsonify({"error": f"Falha de consistência de dados do perfil. Perfis encontrados: {len(profiles)}"}), 403
-            kwargs['business_id'] = profiles[0]['business_id']
+            profile_response = supabase_admin.table('profiles').select('business_id').eq('id', user.id).single().execute()
+            profile = profile_response.data
+            if not profile:
+                return jsonify({"error": "Perfil de usuário não encontrado"}), 403
+            kwargs['business_id'] = profile['business_id']
         except Exception as e:
             return jsonify({"error": "Erro interno na autenticação", "details": str(e)}), 500
         return f(*args, **kwargs)
@@ -58,7 +58,7 @@ def auth_required(f):
 
 # --- ROTAS PÚBLICAS ---
 @app.route("/")
-def index(): return "API do Fluxo v12.0 - Final"
+def index(): return "API do Fluxo v12.1 - Final"
 @app.route("/api/health", methods=['GET'])
 def health_check(): return jsonify({"status": "ok"})
 
@@ -97,20 +97,10 @@ def create_service(business_id):
         return jsonify(response.data[0]), 201
     except Exception as e: return jsonify({"error": "Erro ao criar serviço", "details": str(e)}), 500
 
-@app.route("/api/services/<service_id>", methods=['DELETE'])
-@auth_required
-def delete_service(service_id, business_id):
-    response = supabase_admin.table('services').delete().eq('id', service_id).eq('business_id', business_id).execute()
-    if not response.data: return jsonify({"error": "Serviço não encontrado"}), 404
-    return jsonify({"message": "Serviço apagado com sucesso"}), 200
-
 # --- NOVA ROTA DE UPDATE (PUT) PARA SERVIÇOS ---
 @app.route("/api/services/<service_id>", methods=['PUT'])
 @auth_required
 def update_service(service_id, business_id):
-    """
-    Atualiza um serviço existente.
-    """
     data = request.get_json()
     try:
         response = supabase_admin.table('services').update({
@@ -118,20 +108,25 @@ def update_service(service_id, business_id):
             'price': float(data.get('price')),
             'duration_minutes': int(data.get('duration'))
         }).eq('id', service_id).eq('business_id', business_id).execute()
-
-        # Verifica se algum dado foi retornado, o que indica que a atualização foi bem-sucedida
+        
         if not response.data:
             return jsonify({"error": "Serviço não encontrado ou não pertence a este negócio"}), 404
         
         return jsonify(response.data[0]), 200
     except Exception as e:
         return jsonify({"error": "Erro ao atualizar serviço", "details": str(e)}), 500
+# --- FIM DA NOVA ROTA ---
+
+@app.route("/api/services/<service_id>", methods=['DELETE'])
+@auth_required
+def delete_service(service_id, business_id):
+    response = supabase_admin.table('services').delete().eq('id', service_id).eq('business_id', business_id).execute()
+    if not response.data: return jsonify({"error": "Serviço não encontrado"}), 404
+    return jsonify({"message": "Serviço apagado com sucesso"}), 200
 
 @app.route("/api/professionals", methods=['GET'])
 @auth_required
 def get_professionals(business_id):
-    # Usar a VIEW 'professionals_with_services' se ela existir, senão fazer o join manual.
-    # Por simplicidade aqui, vamos usar o método que já funciona
     response = supabase_admin.table('professionals').select('*, services(*)').eq('business_id', business_id).order('name').execute()
     return jsonify(response.data), 200
 
@@ -159,7 +154,6 @@ def add_service_to_professional(professional_id, business_id):
     data = request.get_json()
     service_id = data.get('service_id')
     try:
-        # Aqui seria bom verificar se ambos professional e service pertencem ao mesmo business_id
         response = supabase_admin.table('professional_services').insert({'professional_id': professional_id, 'service_id': service_id}).execute()
         return jsonify(response.data[0]), 201
     except Exception as e: return jsonify({"error": str(e)}), 400
