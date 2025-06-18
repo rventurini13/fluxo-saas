@@ -1,4 +1,4 @@
-# app.py v15.0 - Versão Final Consolidada e Corrigida
+# app.py v16.0 - Versão Final de Produção, Completa e Corrigida
 import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -65,9 +65,10 @@ def format_service_response(service):
 
 # --- ROTAS PÚBLICAS ---
 @app.route("/")
-def index(): return "API do Fluxo v15.0 - Final"
+def index(): return "API do Fluxo v16.0 - Final"
 @app.route("/api/health", methods=['GET'])
 def health_check(): return jsonify({"status": "ok"})
+
 @app.route("/api/on-signup", methods=['POST'])
 def on_supabase_signup():
     data = request.get_json()
