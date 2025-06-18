@@ -1,4 +1,4 @@
-# app.py v15.0 - Versão Final Consolidada e Corrigida (com ajuste de duration)
+# app.py v20.0
 import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -67,10 +67,14 @@ def auth_required(f):
     return decorated_function
 
 # --- FUNÇÃO AUXILIAR PARA FORMATAR RESPOSTA DE SERVIÇO ---
+
 def format_service_response(service):
-    """Converte 'duration_minutes' para 'duration' para consistência com o front-end."""
+    """
+    Mantém 'duration_minutes' no JSON e acrescenta um alias 'duration'.
+    Assim qualquer front pode ler o valor de duas formas.
+    """
     if service and 'duration_minutes' in service:
-        service['duration'] = service.pop('duration_minutes')
+        service['duration'] = service['duration_minutes']
     return service
 
 # --- ROTAS PÚBLICAS ---
@@ -146,7 +150,6 @@ def get_services(business_id):
 def create_service(business_id):
     data = request.get_json(force=True)
 
-    # Tenta 'duration' ou 'duration_minutes'
     raw_duration = data.get('duration') or data.get('duration_minutes')
     if raw_duration is None:
         return jsonify({"error": "O campo 'duration' ou 'duration_minutes' é obrigatório"}), 400
