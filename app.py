@@ -1,4 +1,4 @@
-# app.py - Versão Final e Consolidada (GOLDEN MASTER)
+# app.py v15.0 - Versão Final Consolidada e Corrigida
 import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -65,7 +65,7 @@ def format_service_response(service):
 
 # --- ROTAS PÚBLICAS ---
 @app.route("/")
-def index(): return "API do Fluxo - Versão Final"
+def index(): return "API do Fluxo v15.0 - Final"
 @app.route("/api/health", methods=['GET'])
 def health_check(): return jsonify({"status": "ok"})
 @app.route("/api/on-signup", methods=['POST'])
@@ -110,7 +110,7 @@ def update_service(service_id, business_id):
     data = request.get_json()
     try:
         response = supabase_admin.table('services').update({'name': data.get('name'),'price': float(data.get('price')),'duration_minutes': int(data.get('duration'))}).eq('id', service_id).eq('business_id', business_id).execute()
-        if not response.data: return jsonify({"error": "Serviço não encontrado"}), 404
+        if not response.data: return jsonify({"error": "Serviço não encontrado ou não pertence a este negócio"}), 404
         return jsonify(format_service_response(response.data[0])), 200
     except Exception as e: return jsonify({"error": "Erro ao atualizar serviço", "details": str(e)}), 500
 
@@ -132,15 +132,11 @@ def get_professionals(business_id):
 def create_professional(business_id):
     data = request.get_json()
     try:
-        prof_response = supabase_admin.table('professionals').insert({'name': data.get('name'), 'business_id': business_id}).execute()
-        new_professional_id = prof_response.data[0]['id']
-        service_ids = data.get('service_ids', [])
-        if service_ids:
-            associations_to_insert = [{'professional_id': new_professional_id, 'service_id': s_id} for s_id in service_ids]
-            supabase_admin.table('professional_services').insert(associations_to_insert).execute()
-        final_professional_response = supabase_admin.table('professionals').select('*, services(*)').eq('id', new_professional_id).single().execute()
-        return jsonify(final_professional_response.data), 201
-    except Exception as e: return jsonify({"error": "Erro ao criar profissional", "details": str(e)}), 500
+        response = supabase_admin.table('professionals').insert({'name': data.get('name'), 'business_id': business_id}).execute()
+        new_professional = response.data[0]
+        new_professional['services'] = []
+        return jsonify(new_professional), 201
+    except Exception as e: return jsonify({"error": str(e)}), 500
 
 @app.route("/api/professionals/<professional_id>", methods=['DELETE'])
 @auth_required
