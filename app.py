@@ -1,4 +1,4 @@
-# app.py v15.0 - Versão Final Consolidada e Corrigida (com ajuste de duration e associação de serviços)
+# app.py v22.0
 import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -14,8 +14,8 @@ app = Flask(__name__)
 # --- CONFIGURAÇÃO DE PRODUÇÃO ---
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 app.url_map.strict_slashes = False
-CORS(app, 
-     origins=["https://fluxo-plataforma-de-agendamento-automatizado.lovable.app"], 
+CORS(app,
+     origins=["https://fluxo-plataforma-de-agendamento-automatizado.lovable.app"],
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization"],
      supports_credentials=True
@@ -74,10 +74,11 @@ def health_check():
 def on_supabase_signup():
     data = request.get_json(force=True)
     try:
-        supabase_admin.rpc(
-            'handle_new_user',
-            {'user_id': data.get('user_id'), 'full_name': data.get('full_name'), 'business_name': data.get('business_name')}
-        ).execute()
+        supabase_admin.rpc('handle_new_user', {
+            'user_id': data.get('user_id'),
+            'full_name': data.get('full_name'),
+            'business_name': data.get('business_name')
+        }).execute()
         return jsonify({"message": "Usuário e negócio criados com sucesso!"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -95,16 +96,10 @@ def get_dashboard_stats(business_id):
             .gte('start_time', today) \
             .lt('start_time', tomorrow) \
             .execute().count
-        stats = {
-            "appointmentsToday": count_today or 0,
-            "revenueToday": 0.0,
-            "revenueMonth": 0.0,
-            "newClientsMonth": 0,
-            "appointmentsLast7Days": [],
-            "revenueLast4Weeks": [],
-            "topServices": [],
-            "upcomingAppointments": []
-        }
+        stats = {"appointmentsToday": count_today or 0, "revenueToday": 0.0,
+                 "revenueMonth": 0.0, "newClientsMonth": 0,
+                 "appointmentsLast7Days": [], "revenueLast4Weeks": [],
+                 "topServices": [], "upcomingAppointments": []}
         return jsonify(stats), 200
     except Exception as e:
         return jsonify({"error": "Erro ao buscar estatísticas", "details": str(e)}), 500
@@ -130,9 +125,9 @@ def create_service(business_id):
     except (TypeError, ValueError):
         return jsonify({"error": "Campos 'duration' e 'price' devem ser numéricos"}), 400
     try:
-        ins = supabase_admin.table('services').insert({
-            'name': name, 'price': price, 'duration_minutes': duration, 'business_id': business_id
-        }).execute()
+        ins = supabase_admin.table('services').insert({'name': name, 'price': price,
+                                                      'duration_minutes': duration,
+                                                      'business_id': business_id}).execute()
         return jsonify(format_service_response(ins.data[0])), 201
     except Exception as e:
         return jsonify({"error": "Erro ao criar serviço", "details": str(e)}), 500
@@ -151,9 +146,9 @@ def update_service(service_id, business_id):
     except (TypeError, ValueError):
         return jsonify({"error": "Campos 'duration' e 'price' devem ser numéricos"}), 400
     try:
-        up = supabase_admin.table('services').update({
-            'name': name, 'price': price, 'duration_minutes': duration
-        }).eq('id', service_id).eq('business_id', business_id).execute()
+        up = supabase_admin.table('services').update({'name': name, 'price': price,
+                                                      'duration_minutes': duration}) \
+            .eq('id', service_id).eq('business_id', business_id).execute()
         if not up.data:
             return jsonify({"error": "Serviço não encontrado"}), 404
         return jsonify(format_service_response(up.data[0])), 200
@@ -179,18 +174,34 @@ def get_professionals(business_id):
 def create_professional(business_id):
     data = request.get_json(force=True)
     name = data.get('name')
-    services = data.get('services', []) or data.get('service_ids', [])
+    services_input = data.get('services', [])
+    # normaliza lista de services_ids
+    service_ids = []
+    for item in services_input:
+        try:
+            # se for uuid, usa direto
+            import re
+            if re.fullmatch(r"[0-9a-fA-F\-]{36}", item):
+                service_ids.append(item)
+            else:
+                # trata como nome, busca id pelo nome
+                row = supabase_admin.table('services') \
+                    .select('id') \
+                    .eq('business_id', business_id) \
+                    .ilike('name', item) \
+                    .single() \
+                    .execute().data
+                if row and row.get('id'):
+                    service_ids.append(row['id'])
+        except Exception:
+            continue
     try:
-        ins = supabase_admin.table('professionals').insert({
-            'name': name, 'business_id': business_id
-        }).execute()
+        ins = supabase_admin.table('professionals').insert({'name': name, 'business_id': business_id}).execute()
         prof = ins.data[0]
         prof_id = prof['id']
-        # associa serviços selecionados
-        if isinstance(services, list) and services:
-            assoc = [{'professional_id': prof_id, 'service_id': sid} for sid in services]
+        if service_ids:
+            assoc = [{'professional_id': prof_id, 'service_id': sid} for sid in service_ids]
             supabase_admin.table('professional_services').insert(assoc).execute()
-        # retorna profissional com serviços associados
         full = supabase_admin.table('professionals').select('*, services(*)').eq('id', prof_id).single().execute().data
         return jsonify(full), 201
     except Exception as e:
