@@ -56,6 +56,13 @@ def auth_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+# --- FUNÇÃO AUXILIAR PARA FORMATAR RESPOSTA DE SERVIÇO ---
+def format_service_response(service):
+    """Converte 'duration_minutes' para 'duration' para consistência com o front-end."""
+    if service and 'duration_minutes' in service:
+        service['duration'] = service.pop('duration_minutes')
+    return service
+
 # --- ROTAS PÚBLICAS ---
 @app.route("/")
 def index(): return "API do Fluxo v13.2 - Final"
@@ -87,7 +94,8 @@ def get_dashboard_stats(business_id):
 @auth_required
 def get_services(business_id):
     response = supabase_admin.table('services').select('*').eq('business_id', business_id).order('name').execute()
-    return jsonify(response.data), 200
+    formatted_data = [format_service_response(s) for s in response.data]
+    return jsonify(formatted_data), 200
 
 @app.route("/api/services", methods=['POST'])
 @auth_required
@@ -95,9 +103,25 @@ def create_service(business_id):
     data = request.get_json()
     try:
         response = supabase_admin.table('services').insert({'name': data.get('name'),'price': float(data.get('price')),'duration_minutes': int(data.get('duration')),'business_id': business_id}).execute()
-        return jsonify(response.data[0]), 201
+        return jsonify(format_service_response(response.data[0])), 201
     except Exception as e: return jsonify({"error": "Erro ao criar serviço", "details": str(e)}), 500
 
+@app.route("/api/services/<service_id>", methods=['PUT'])
+@auth_required
+def update_service(service_id, business_id):
+    data = request.get_json()
+    try:
+        response = supabase_admin.table('services').update({'name': data.get('name'),'price': float(data.get('price')),'duration_minutes': int(data.get('duration'))}).eq('id', service_id).eq('business_id', business_id).execute()
+        if not response.data: return jsonify({"error": "Serviço não encontrado"}), 404
+        return jsonify(format_service_response(response.data[0])), 200
+    except Exception as e: return jsonify({"error": "Erro ao atualizar serviço", "details": str(e)}), 500
+
+@app.route("/api/services/<service_id>", methods=['DELETE'])
+@auth_required
+def delete_service(service_id, business_id):
+    response = supabase_admin.table('services').delete().eq('id', service_id).eq('business_id', business_id).execute()
+    if not response.data: return jsonify({"error": "Serviço não encontrado"}), 404
+    return jsonify({"message": "Serviço apagado com sucesso"}), 200
 # --- ROTA DE UPDATE (PUT) ADICIONADA ---
 @app.route("/api/services/<service_id>", methods=['PUT'])
 @auth_required
