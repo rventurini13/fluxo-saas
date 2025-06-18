@@ -104,6 +104,29 @@ def delete_service(service_id, business_id):
     if not response.data: return jsonify({"error": "Serviço não encontrado"}), 404
     return jsonify({"message": "Serviço apagado com sucesso"}), 200
 
+# --- NOVA ROTA DE UPDATE (PUT) PARA SERVIÇOS ---
+@app.route("/api/services/<service_id>", methods=['PUT'])
+@auth_required
+def update_service(service_id, business_id):
+    """
+    Atualiza um serviço existente.
+    """
+    data = request.get_json()
+    try:
+        response = supabase_admin.table('services').update({
+            'name': data.get('name'),
+            'price': float(data.get('price')),
+            'duration_minutes': int(data.get('duration'))
+        }).eq('id', service_id).eq('business_id', business_id).execute()
+
+        # Verifica se algum dado foi retornado, o que indica que a atualização foi bem-sucedida
+        if not response.data:
+            return jsonify({"error": "Serviço não encontrado ou não pertence a este negócio"}), 404
+        
+        return jsonify(response.data[0]), 200
+    except Exception as e:
+        return jsonify({"error": "Erro ao atualizar serviço", "details": str(e)}), 500
+
 @app.route("/api/professionals", methods=['GET'])
 @auth_required
 def get_professionals(business_id):
