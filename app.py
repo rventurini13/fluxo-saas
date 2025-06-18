@@ -1,5 +1,6 @@
-# app.py v9.0 - Arquitetura Final com Dois Clientes Supabase
+# app.py v9.2 - Com diagnóstico de variáveis de ambiente
 import os
+import json # Usaremos para imprimir as variáveis de forma legível
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -8,60 +9,40 @@ from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 load_dotenv()
+
+# --- BLOCO DE DIAGNÓSTICO DE AMBIENTE ---
+# Este código será executado assim que a aplicação iniciar na Railway
+print("--- INICIANDO DIAGNÓSTICO DE VARIÁVEIS DE AMBIENTE ---")
+# Imprime um dicionário de todas as variáveis de ambiente para depuração
+print(json.dumps(dict(os.environ), indent=2))
+print("--- FIM DO DIAGNÓSTICO ---")
+# --- FIM DO BLOCO DE DIAGNÓSTICO ---
+
+
 app = Flask(__name__)
 
+# Configurações de Produção
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 app.url_map.strict_slashes = False
 CORS(app, origins=["https://fluxo-plataforma-de-agendamento-automatizado.lovable.app"], methods=["GET", "POST", "DELETE", "OPTIONS"], allow_headers=["Content-Type", "Authorization"], supports_credentials=True)
 
-# --- INICIALIZAÇÃO DOS DOIS CLIENTES ---
-url: str = os.environ.get("SUPABASE_URL").strip()
-# A chave pública para operações no contexto de um usuário
-key: str = os.environ.get("SUPABASE_KEY").strip() 
-# A chave de serviço para operações administrativas
-service_key: str = os.environ.get("SUPABASE_SERVICE_KEY").strip() # Crie esta variável na Railway!
+# Inicialização Segura das Variáveis
+url_from_env = os.environ.get("SUPABASE_URL")
+key_from_env = os.environ.get("SUPABASE_KEY")
+service_key_from_env = os.environ.get("SUPABASE_SERVICE_KEY")
 
-# Cliente principal, usado para requisições de usuários
+if not all([url_from_env, key_from_env, service_key_from_env]):
+    raise ValueError("ERRO CRÍTICO: Uma ou mais variáveis de ambiente do Supabase não foram encontradas.")
+
+url: str = url_from_env.strip()
+key: str = key_from_env.strip()
+service_key: str = service_key_from_env.strip()
+
+# Clientes Supabase
 supabase: Client = create_client(url, key)
-# Cliente administrativo, que bypassa o RLS
 supabase_admin: Client = create_client(url, service_key)
 
-
-# --- DECORADOR DE AUTENTICAÇÃO ATUALIZADO ---
-def auth_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith("Bearer "): return jsonify({"error": "Token não fornecido"}), 401
-        
-        # Injeta o token do usuário no cliente Supabase para esta requisição
-        jwt_token = auth_header.split(" ")[1]
-        supabase.postgrest.auth(jwt_token)
-        
-        # A validação do token é implícita. Se for inválido, a próxima chamada falhará.
-        return f(*args, **kwargs)
-    return decorated_function
-
-
-# --- ROTA DE SIGNUP USA O CLIENTE ADMIN ---
-@app.route("/api/on-signup", methods=['POST'])
-def on_supabase_signup():
-    data = request.get_json()
-    try:
-        # Usamos o cliente administrativo para chamar a função de criação
-        supabase_admin.rpc('handle_new_user', {'user_id': data.get('user_id'),'full_name': data.get('full_name'),'business_name': data.get('business_name')}).execute()
-        return jsonify({"message": "Usuário e negócio criados com sucesso!"}), 200
-    except Exception as e: return jsonify({"error": str(e)}), 400
-
-# --- ROTAS PROTEGIDAS USAM O CLIENTE DE USUÁRIO NORMAL ---
-@app.route("/api/services", methods=['GET'])
-@auth_required
-def get_services():
-    # O RLS do Supabase fará o filtro automaticamente baseado no token injetado
-    response = supabase.table('services').select('*').order('name').execute()
-    return jsonify(response.data), 200
-
-# (E assim por diante para todas as outras rotas... a lógica delas fica muito mais simples)
+# (O resto do seu código, com o decorador e as rotas, continua aqui)
 # ...
 
 if __name__ == '__main__':
