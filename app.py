@@ -259,6 +259,7 @@ def remove_prof_service(pid, sid, business_id):
 # -------------------
 # Agenda / Agendamentos
 # -------------------
+
 @app.route("/api/appointments", methods=["GET"])
 @auth_required
 def get_appointments(business_id):
@@ -280,12 +281,12 @@ def get_appointments(business_id):
         return jsonify(r), 200
     except Exception as e:
         return jsonify({"error": "Falha ao buscar agendamentos", "details": str(e)}), 500
-   
+
 @app.route("/api/appointments/<aid>", methods=["GET"])
 @auth_required
 def get_appointment_by_id(aid, business_id):
     try:
-        appt = supabase.table("appointments") \
+        result = supabase.table("appointments") \
             .select("""
                 id,
                 customer_name,
@@ -300,12 +301,12 @@ def get_appointment_by_id(aid, business_id):
             .eq("id", aid) \
             .eq("business_id", business_id) \
             .single() \
-            .execute().data
+            .execute()
 
-        if not appt:
+        if result.data is None:
             return jsonify({"error": "Agendamento não encontrado"}), 404
 
-        return jsonify(appt), 200
+        return jsonify(result.data), 200
 
     except Exception as e:
         return jsonify({"error": "Erro ao buscar agendamento", "details": str(e)}), 500
@@ -314,28 +315,27 @@ def get_appointment_by_id(aid, business_id):
 @auth_required
 def create_appointment(business_id):
     data = request.get_json(force=True)
-    required = ["professional_id", "service_id",
-                "customer_name", "customer_phone", "start_time"]
+    required = ["professional_id", "service_id", "customer_name", "customer_phone", "start_time"]
     if not all(k in data for k in required):
         return jsonify({"error": "Campos obrigatórios faltando"}), 400
     try:
         svc = supabase.table("services") \
-                      .select("duration_minutes") \
-                      .eq("id", data["service_id"]) \
-                      .single() \
-                      .execute().data
+            .select("duration_minutes") \
+            .eq("id", data["service_id"]) \
+            .single() \
+            .execute().data
         if not svc:
             return jsonify({"error": "Serviço não existe"}), 404
         start = datetime.fromisoformat(data["start_time"])
-        end   = start + timedelta(minutes=svc["duration_minutes"])
+        end = start + timedelta(minutes=svc["duration_minutes"])
         rec = {
             "professional_id": data["professional_id"],
-            "service_id":      data["service_id"],
-            "business_id":     business_id,
-            "customer_name":   data["customer_name"],
-            "customer_phone":  data["customer_phone"],
-            "start_time":      start.isoformat(),
-            "end_time":        end.isoformat()
+            "service_id": data["service_id"],
+            "business_id": business_id,
+            "customer_name": data["customer_name"],
+            "customer_phone": data["customer_phone"],
+            "start_time": start.isoformat(),
+            "end_time": end.isoformat()
         }
         appt = supabase.table("appointments").insert(rec).execute().data[0]
         return jsonify(appt), 201
@@ -349,28 +349,26 @@ def update_appointment(aid, business_id):
     required = ["professional_id", "service_id", "customer_name", "customer_phone", "start_time"]
     if not all(k in data for k in required):
         return jsonify({"error": "Campos obrigatórios faltando"}), 400
-
     try:
-        # Busca duração do serviço
         svc = supabase.table("services") \
-                      .select("duration_minutes") \
-                      .eq("id", data["service_id"]) \
-                      .single() \
-                      .execute().data
+            .select("duration_minutes") \
+            .eq("id", data["service_id"]) \
+            .single() \
+            .execute().data
         if not svc:
             return jsonify({"error": "Serviço não existe"}), 404
 
         start = datetime.fromisoformat(data["start_time"])
-        end   = start + timedelta(minutes=svc["duration_minutes"])
+        end = start + timedelta(minutes=svc["duration_minutes"])
 
         updated = supabase.table("appointments") \
             .update({
                 "professional_id": data["professional_id"],
-                "service_id":      data["service_id"],
-                "customer_name":   data["customer_name"],
-                "customer_phone":  data["customer_phone"],
-                "start_time":      start.isoformat(),
-                "end_time":        end.isoformat()
+                "service_id": data["service_id"],
+                "customer_name": data["customer_name"],
+                "customer_phone": data["customer_phone"],
+                "start_time": start.isoformat(),
+                "end_time": end.isoformat()
             }) \
             .eq("id", aid) \
             .eq("business_id", business_id) \
@@ -380,20 +378,18 @@ def update_appointment(aid, business_id):
             return jsonify({"error": "Agendamento não encontrado"}), 404
 
         return jsonify(updated[0]), 200
-
     except Exception as e:
         return jsonify({"error": "Falha ao atualizar agendamento", "details": str(e)}), 500
 
-# --- Rota para deletar um agendamento ---
 @app.route("/api/appointments/<aid>", methods=["DELETE"])
 @auth_required
 def delete_appointment(aid, business_id):
     try:
         deleted = supabase.table("appointments") \
-                          .delete() \
-                          .eq("id", aid) \
-                          .eq("business_id", business_id) \
-                          .execute().data
+            .delete() \
+            .eq("id", aid) \
+            .eq("business_id", business_id) \
+            .execute().data
         if not deleted:
             return jsonify({"error": "Agendamento não encontrado"}), 404
         return jsonify({"message": "Agendamento removido com sucesso"}), 200
