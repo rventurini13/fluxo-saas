@@ -126,13 +126,26 @@ def dashboard_stats(business_id):
 
         revenue_month = sum(price_map.get(a["service_id"], 0) for a in appts_month)
 
-        # --- Novos clientes do mês
-        clients = supabase.table("customers") \
-            .select("id") \
+           # --- Novos clientes do mês
+        old_clients = supabase.table("appointments") \
+            .select("customer_phone") \
             .eq("business_id", business_id) \
-            .gte("created_at", start_of_month.isoformat()) \
+            .lt("start_time", start_of_month.isoformat()) \
             .execute().data
-        new_clients = len(clients)
+        old_phones = {c["customer_phone"] for c in old_clients if c.get("customer_phone")}
+
+        this_month = supabase.table("appointments") \
+            .select("customer_phone") \
+            .eq("business_id", business_id) \
+            .gte("start_time", start_of_month.isoformat()) \
+            .execute().data
+
+        new_phones = {
+            c["customer_phone"]
+            for c in this_month
+            if c.get("customer_phone") and c["customer_phone"] not in old_phones
+        }
+        new_clients = len(new_phones)
 
         # --- Agendamentos últimos 7 dias
         appts_7d = []
