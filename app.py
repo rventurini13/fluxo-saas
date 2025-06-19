@@ -112,7 +112,7 @@ def get_appointments(business_id):
         resp = supabase_admin.table('appointments') \
             .select('*') \
             .eq('business_id', business_id) \
-            .order('start_time', ascending=True) \
+            .order('start_time', desc=False) \
             .execute()
         return jsonify(resp.data),200
     except Exception as e:
