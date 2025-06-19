@@ -334,12 +334,16 @@ def delete_appointment(aid, business_id):
 @app.route("/api/available-professionals", methods=["GET"])
 @auth_required
 def available_professionals(business_id):
-    svc_id    = request.args.get("service_id")
-    start_str = request.args.get("start_time")
+    svc_id        = request.args.get("service_id")
+    start_str     = request.args.get("start_time")
+    appt_id       = request.args.get("appointment_id")  # opcional: usado na edição
+
     if not svc_id or not start_str:
         return jsonify({"error": "service_id e start_time obrigatórios"}), 400
+
     try:
         start = datetime.fromisoformat(start_str)
+
         svc = supabase.table("services") \
                       .select("duration_minutes") \
                       .eq("id", svc_id) \
@@ -347,26 +351,37 @@ def available_professionals(business_id):
                       .execute().data
         if not svc:
             return jsonify({"error": "Serviço não existe"}), 404
+
         end = start + timedelta(minutes=svc["duration_minutes"])
+
         link = supabase.table("professional_services") \
                        .select("professional_id") \
                        .eq("service_id", svc_id) \
                        .execute().data
         prof_ids = [l["professional_id"] for l in link]
+
         busy = supabase.table("appointments") \
-                       .select("professional_id") \
+                       .select("id, professional_id") \
                        .eq("business_id", business_id) \
                        .lt("start_time", end.isoformat()) \
                        .gt("end_time",   start.isoformat()) \
                        .execute().data
+
+        # Exclui o próprio agendamento caso esteja sendo editado
+        if appt_id:
+            busy = [b for b in busy if b["id"] != appt_id]
+
         busy_ids = {b["professional_id"] for b in busy}
+
         pros = supabase.table("professionals") \
                        .select("id,name") \
                        .eq("business_id", business_id) \
                        .in_("id", prof_ids) \
                        .execute().data
+
         free = [p for p in pros if p["id"] not in busy_ids]
         return jsonify(free), 200
+
     except Exception as e:
         return jsonify({"error": "Falha ao buscar disponíveis", "details": str(e)}), 500
 
