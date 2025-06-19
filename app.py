@@ -280,8 +280,35 @@ def get_appointments(business_id):
         return jsonify(r), 200
     except Exception as e:
         return jsonify({"error": "Falha ao buscar agendamentos", "details": str(e)}), 500
+   
+@app.route("/api/appointments/<aid>", methods=["GET"])
+@auth_required
+def get_appointment_by_id(aid, business_id):
+    try:
+        appt = supabase.table("appointments") \
+            .select("""
+                id,
+                customer_name,
+                customer_phone,
+                service_id,
+                professional_id,
+                start_time,
+                end_time,
+                service:services(name),
+                professional:professionals(name)
+            """) \
+            .eq("id", aid) \
+            .eq("business_id", business_id) \
+            .single() \
+            .execute().data
+
+        if not appt:
+            return jsonify({"error": "Agendamento não encontrado"}), 404
+
+        return jsonify(appt), 200
+
     except Exception as e:
-        return jsonify({"error": "Falha ao buscar agendamentos", "details": str(e)}), 500
+        return jsonify({"error": "Erro ao buscar agendamento", "details": str(e)}), 500
 
 @app.route("/api/appointments", methods=["POST"])
 @auth_required
