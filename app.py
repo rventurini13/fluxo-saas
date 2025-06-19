@@ -303,6 +303,22 @@ def create_appointment(business_id):
     except Exception as e:
         return jsonify({"error": "Falha ao criar agendamento", "details": str(e)}), 500
 
+# --- Rota para deletar um agendamento ---
+@app.route("/api/appointments/<aid>", methods=["DELETE"])
+@auth_required
+def delete_appointment(aid, business_id):
+    try:
+        deleted = supabase.table("appointments") \
+                          .delete() \
+                          .eq("id", aid) \
+                          .eq("business_id", business_id) \
+                          .execute().data
+        if not deleted:
+            return jsonify({"error": "Agendamento não encontrado"}), 404
+        return jsonify({"message": "Agendamento removido com sucesso"}), 200
+    except Exception as e:
+        return jsonify({"error": "Erro ao deletar agendamento", "details": str(e)}), 500
+
 @app.route("/api/available-professionals", methods=["GET"])
 @auth_required
 def available_professionals(business_id):
