@@ -1,5 +1,3 @@
-# app.py v28.3
-
 import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
