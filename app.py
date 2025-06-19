@@ -276,7 +276,7 @@ def get_appointments(business_id):
 def create_appointment(business_id):
     data = request.get_json(force=True)
     required = ["professional_id", "service_id",
-                "client_name", "client_phone", "start_time"]
+                "customer_name", "customer_phone", "start_time"]
     if not all(k in data for k in required):
         return jsonify({"error": "Campos obrigatórios faltando"}), 400
     try:
@@ -293,8 +293,8 @@ def create_appointment(business_id):
             "professional_id": data["professional_id"],
             "service_id":      data["service_id"],
             "business_id":     business_id,
-            "customer_name":   data["client_name"],
-            "customer_phone":  data["client_phone"],
+            "customer_name":   data["customer_name"],
+            "customer_phone":  data["customer_phone"],
             "start_time":      start.isoformat(),
             "end_time":        end.isoformat()
         }
