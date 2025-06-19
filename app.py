@@ -15,7 +15,7 @@ SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
 if not all([SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY]):
     raise RuntimeError("Variáveis de ambiente do Supabase não configuradas.")
 
-# Inicializa Flask + Supabase
+# Inicializa Flask
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 app.url_map.strict_slashes = False
@@ -25,6 +25,7 @@ CORS(app,
      allow_headers=["Content-Type", "Authorization"],
      supports_credentials=True)
 
+# Inicializa Supabase
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 # -------------------
