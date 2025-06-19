@@ -98,27 +98,96 @@ def on_signup():
 def dashboard_stats(business_id):
     try:
         today = datetime.now().date()
-        tomorrow = today + timedelta(days=1)
-        count_today = supabase.table("appointments") \
-                              .select("id", count="exact") \
-                              .eq("business_id", business_id) \
-                              .gte("start_time", today.isoformat()) \
-                              .lt("start_time", tomorrow.isoformat()) \
-                              .execute().count or 0
-        stats = {
-            "appointmentsToday": count_today,
-            "revenueToday": 0.0,
-            "revenueMonth": 0.0,
-            "newClientsMonth": 0,
-            "appointmentsLast7Days": [],
-            "revenueLast4Weeks": [],
-            "topServices": [],
-            "upcomingAppointments": []
-        }
-        return jsonify(stats), 200
-    except Exception as e:
-        return jsonify({"error": "Falha ao buscar stats", "details": str(e)}), 500
+        start_of_month = today.replace(day=1)
 
+        # --- Carrega serviços e preços
+        services = supabase.table("services") \
+            .select("id, price") \
+            .eq("business_id", business_id) \
+            .execute().data
+        price_map = {s["id"]: s.get("price", 0.0) for s in services}
+
+        # --- Agendamentos de hoje
+        appts_today = supabase.table("appointments") \
+            .select("id, service_id, start_time") \
+            .eq("business_id", business_id) \
+            .gte("start_time", today.isoformat()) \
+            .lt("start_time", (today + timedelta(days=1)).isoformat()) \
+            .execute().data
+
+        revenue_today = sum(price_map.get(a["service_id"], 0) for a in appts_today)
+
+        # --- Agendamentos no mês
+        appts_month = supabase.table("appointments") \
+            .select("service_id") \
+            .eq("business_id", business_id) \
+            .gte("start_time", start_of_month.isoformat()) \
+            .execute().data
+
+        revenue_month = sum(price_map.get(a["service_id"], 0) for a in appts_month)
+
+        # --- Novos clientes do mês
+        clients = supabase.table("customers") \
+            .select("id") \
+            .eq("business_id", business_id) \
+            .gte("created_at", start_of_month.isoformat()) \
+            .execute().data
+        new_clients = len(clients)
+
+        # --- Agendamentos últimos 7 dias
+        appts_7d = []
+        for i in range(6, -1, -1):
+            day = today - timedelta(days=i)
+            count = supabase.table("appointments") \
+                .select("id") \
+                .eq("business_id", business_id) \
+                .gte("start_time", day.isoformat()) \
+                .lt("start_time", (day + timedelta(days=1)).isoformat()) \
+                .execute().data
+            appts_7d.append({"date": day.isoformat(), "total": len(count)})
+
+        # --- Faturamento últimas 4 semanas
+        revenue_4w = []
+        for w in range(4):
+            start = today - timedelta(days=today.weekday() + w * 7)
+            end = start + timedelta(days=7)
+            appts = supabase.table("appointments") \
+                .select("service_id") \
+                .eq("business_id", business_id) \
+                .gte("start_time", start.isoformat()) \
+                .lt("start_time", end.isoformat()) \
+                .execute().data
+            total = sum(price_map.get(a["service_id"], 0) for a in appts)
+            revenue_4w.append({
+                "week_start": start.isoformat(),
+                "week_end": end.isoformat(),
+                "total": total
+            })
+
+        # --- Top serviços do mês
+        svc_counter = {}
+        for a in appts_month:
+            sid = a["service_id"]
+            svc_counter[sid] = svc_counter.get(sid, 0) + 1
+        top = sorted(svc_counter.items(), key=lambda x: x[1], reverse=True)[:5]
+        top_services = [{"service_id": sid, "count": count} for sid, count in top]
+
+        # --- Próximos agendamentos de hoje
+        upcoming = sorted(appts_today, key=lambda x: x["start_time"])
+
+        return jsonify({
+            "appointmentsToday": len(appts_today),
+            "revenueToday": revenue_today,
+            "revenueMonth": revenue_month,
+            "newClientsMonth": new_clients,
+            "appointmentsLast7Days": appts_7d,
+            "revenueLast4Weeks": revenue_4w,
+            "topServices": top_services,
+            "upcomingToday": upcoming
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": "Falha ao calcular estatísticas", "details": str(e)}), 500
 # -------------------
 # Serviços CRUD
 # -------------------
