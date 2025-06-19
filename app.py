@@ -97,8 +97,22 @@ def on_signup():
 @auth_required
 def dashboard_stats(business_id):
     try:
-        today = datetime.now().date()
-        start_of_month = today.replace(day=1)
+        from pytz import timezone
+
+        # --- Fuso horário dinâmico por negócio
+        tz_row = supabase.table("businesses") \
+            .select("timezone") \
+            .eq("id", business_id) \
+            .single() \
+            .execute().data
+        tz_name = tz_row.get("timezone") or "America/Sao_Paulo"
+        local_tz = timezone(tz_name)
+        now_local = datetime.now(local_tz)
+
+        start_of_day = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_day = start_of_day + timedelta(days=1)
+
+        start_of_month = start_of_day.replace(day=1)
 
         # --- Carrega serviços e preços
         services = supabase.table("services") \
@@ -111,10 +125,9 @@ def dashboard_stats(business_id):
         appts_today = supabase.table("appointments") \
             .select("id, service_id, start_time") \
             .eq("business_id", business_id) \
-            .gte("start_time", today.isoformat()) \
-            .lt("start_time", (today + timedelta(days=1)).isoformat()) \
+            .gte("start_time", start_of_day.isoformat()) \
+            .lt("start_time", end_of_day.isoformat()) \
             .execute().data
-
         revenue_today = sum(price_map.get(a["service_id"], 0) for a in appts_today)
 
         # --- Agendamentos no mês
@@ -123,10 +136,9 @@ def dashboard_stats(business_id):
             .eq("business_id", business_id) \
             .gte("start_time", start_of_month.isoformat()) \
             .execute().data
-
         revenue_month = sum(price_map.get(a["service_id"], 0) for a in appts_month)
 
-           # --- Novos clientes do mês
+        # --- Clientes novos (do mês)
         old_clients = supabase.table("appointments") \
             .select("customer_phone") \
             .eq("business_id", business_id) \
@@ -139,7 +151,6 @@ def dashboard_stats(business_id):
             .eq("business_id", business_id) \
             .gte("start_time", start_of_month.isoformat()) \
             .execute().data
-
         new_phones = {
             c["customer_phone"]
             for c in this_month
@@ -147,22 +158,25 @@ def dashboard_stats(business_id):
         }
         new_clients = len(new_phones)
 
-        # --- Agendamentos últimos 7 dias
+        # --- Últimos 7 dias
         appts_7d = []
         for i in range(6, -1, -1):
-            day = today - timedelta(days=i)
+            day = now_local - timedelta(days=i)
+            start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+            end = start + timedelta(days=1)
             count = supabase.table("appointments") \
                 .select("id") \
                 .eq("business_id", business_id) \
-                .gte("start_time", day.isoformat()) \
-                .lt("start_time", (day + timedelta(days=1)).isoformat()) \
+                .gte("start_time", start.isoformat()) \
+                .lt("start_time", end.isoformat()) \
                 .execute().data
-            appts_7d.append({"date": day.isoformat(), "total": len(count)})
+            appts_7d.append({"date": start.date().isoformat(), "total": len(count)})
 
         # --- Faturamento últimas 4 semanas
         revenue_4w = []
         for w in range(4):
-            start = today - timedelta(days=today.weekday() + w * 7)
+            start = (now_local - timedelta(weeks=w)).replace(hour=0, minute=0, second=0, microsecond=0)
+            start -= timedelta(days=start.weekday())
             end = start + timedelta(days=7)
             appts = supabase.table("appointments") \
                 .select("service_id") \
@@ -172,8 +186,8 @@ def dashboard_stats(business_id):
                 .execute().data
             total = sum(price_map.get(a["service_id"], 0) for a in appts)
             revenue_4w.append({
-                "week_start": start.isoformat(),
-                "week_end": end.isoformat(),
+                "week_start": start.date().isoformat(),
+                "week_end": end.date().isoformat(),
                 "total": total
             })
 
@@ -201,6 +215,7 @@ def dashboard_stats(business_id):
 
     except Exception as e:
         return jsonify({"error": "Falha ao calcular estatísticas", "details": str(e)}), 500
+
 # -------------------
 # Serviços CRUD
 # -------------------
