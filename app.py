@@ -1,4 +1,4 @@
-# app.py v28.2
+# app.py v28.3
 
 import os
 from flask import Flask, jsonify, request
@@ -9,15 +9,19 @@ from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+# -------------------
 # Carrega variáveis de ambiente
+# -------------------
 load_dotenv()
-SUPABASE_URL       = os.getenv("SUPABASE_URL", "").strip()
-SUPABASE_KEY       = os.getenv("SUPABASE_KEY", "").strip()
+SUPABASE_URL         = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_KEY         = os.getenv("SUPABASE_KEY", "").strip()
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
 if not all([SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY]):
     raise RuntimeError("Variáveis de ambiente do Supabase não configuradas.")
 
+# -------------------
 # Inicializa Flask + Supabase
+# -------------------
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 app.url_map.strict_slashes = False
@@ -27,43 +31,43 @@ CORS(app,
      allow_headers=["Content-Type", "Authorization"],
      supports_credentials=True)
 
-supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 # -------------------
-# Decorador de Auth
+# Decorador de Autenticação
 # -------------------
 def auth_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        auth = request.headers.get("Authorization", "")
-        if not auth.startswith("Bearer "):
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
             return jsonify({"error": "Token ausente ou mal formatado"}), 401
-        token = auth.split(" ")[1]
+        token = auth_header.split(" ")[1]
         try:
             user_resp = supabase.auth.get_user(token)
             user = user_resp.user
             if not user:
                 return jsonify({"error": "Token inválido"}), 401
-            # pega business_id do perfil
-            prof = supabase.table("profiles")\
-                           .select("business_id")\
-                           .eq("id", user.id)\
-                           .single()\
-                           .execute().data
-            if not prof:
+            profile = (
+                supabase.table("profiles")
+                         .select("business_id")
+                         .eq("id", user.id)
+                         .single()
+                         .execute()
+                         .data
+            )
+            if not profile:
                 return jsonify({"error": "Perfil não encontrado"}), 403
-            kwargs["business_id"] = prof["business_id"]
+            kwargs["business_id"] = profile["business_id"]
         except Exception as e:
             return jsonify({"error": "Falha na autenticação", "details": str(e)}), 500
-
         return fn(*args, **kwargs)
     return wrapper
 
 # -------------------
 # Helpers
 # -------------------
-def format_service(s):
-    # renomeia duration_minutes → duration
+def format_service(s: dict) -> dict:
     if "duration_minutes" in s:
         s["duration"] = s.pop("duration_minutes")
     return s
@@ -73,7 +77,7 @@ def format_service(s):
 # -------------------
 @app.route("/", methods=["GET"])
 def index():
-    return "API Fluxo v18.0 – OK"
+    return "API Fluxo v28.2 – OK"
 
 @app.route("/api/health", methods=["GET"])
 def health():
@@ -104,13 +108,15 @@ def dashboard_stats(business_id):
     try:
         today = datetime.now().date()
         tomorrow = today + timedelta(days=1)
-        count_today = supabase.table("appointments")\
-                              .select("id", count="exact")\
-                              .eq("business_id", business_id)\
-                              .gte("start_time", today.isoformat())\
-                              .lt("start_time", tomorrow.isoformat())\
-                              .execute().count or 0
-
+        count_today = (
+            supabase.table("appointments")
+                    .select("id", count="exact")
+                    .eq("business_id", business_id)
+                    .gte("start_time", today.isoformat())
+                    .lt("start_time", tomorrow.isoformat())
+                    .execute()
+                    .count or 0
+        )
         stats = {
             "appointmentsToday": count_today,
             "revenueToday": 0.0,
@@ -132,11 +138,13 @@ def dashboard_stats(business_id):
 @app.route("/api/services", methods=["GET"])
 @auth_required
 def list_services(business_id):
-    resp = supabase.table("services")\
-                   .select("*")\
-                   .eq("business_id", business_id)\
-                   .order("name")\
-                   .execute()
+    resp = (
+        supabase.table("services")
+                 .select("*")
+                 .eq("business_id", business_id)
+                 .order("name")
+                 .execute()
+    )
     return jsonify([format_service(s) for s in resp.data]), 200
 
 @app.route("/api/services", methods=["POST"])
@@ -175,24 +183,24 @@ def update_service(sid, business_id):
             "price": float(price),
             "duration_minutes": int(duration)
         }
-        r = supabase.table("services")\
-                    .update(rec)\
-                    .eq("id", sid)\
-                    .eq("business_id", business_id)\
+        r = supabase.table("services")
+                    .update(rec)
+                    .eq("id", sid)
+                    .eq("business_id", business_id)
                     .execute().data
         if not r:
             return jsonify({"error": "Serviço não encontrado"}), 404
         return jsonify(format_service(r[0])), 200
     except Exception as e:
-        return jsonify({"error": "Falha ao atualizar", "details": str(e)}), 500
+        return jsonify({"error": "Falha ao atualizar serviço", "details": str(e)}), 500
 
 @app.route("/api/services/<sid>", methods=["DELETE"])
 @auth_required
 def delete_service(sid, business_id):
-    r = supabase.table("services")\
-               .delete()\
-               .eq("id", sid)\
-               .eq("business_id", business_id)\
+    r = supabase.table("services")
+               .delete()
+               .eq("id", sid)
+               .eq("business_id", business_id)
                .execute().data
     if not r:
         return jsonify({"error": "Serviço não encontrado"}), 404
@@ -204,11 +212,13 @@ def delete_service(sid, business_id):
 @app.route("/api/professionals", methods=["GET"])
 @auth_required
 def list_professionals(business_id):
-    resp = supabase.table("professionals")\
-                   .select("*, services(*)")\
-                   .eq("business_id", business_id)\
-                   .order("name")\
-                   .execute()
+    resp = (
+        supabase.table("professionals")
+                 .select("*, services(*)")
+                 .eq("business_id", business_id)
+                 .order("name")
+                 .execute()
+    )
     return jsonify(resp.data), 200
 
 @app.route("/api/professionals", methods=["POST"])
@@ -219,8 +229,8 @@ def create_professional(business_id):
     if not name:
         return jsonify({"error": "name é obrigatório"}), 400
     try:
-        r = supabase.table("professionals")\
-                    .insert({"name": name, "business_id": business_id})\
+        r = supabase.table("professionals")
+                    .insert({"name": name, "business_id": business_id})
                     .execute().data[0]
         return jsonify({**r, "services": []}), 201
     except Exception as e:
@@ -229,10 +239,10 @@ def create_professional(business_id):
 @app.route("/api/professionals/<pid>", methods=["DELETE"])
 @auth_required
 def delete_professional(pid, business_id):
-    r = supabase.table("professionals")\
-               .delete()\
-               .eq("id", pid)\
-               .eq("business_id", business_id)\
+    r = supabase.table("professionals")
+               .delete()
+               .eq("id", pid)
+               .eq("business_id", business_id)
                .execute().data
     if not r:
         return jsonify({"error": "Profissional não encontrado"}), 404
@@ -245,19 +255,19 @@ def add_prof_service(pid, business_id):
     if not sid:
         return jsonify({"error": "service_id é obrigatório"}), 400
     try:
-        r = supabase.table("professional_services")\
-                    .insert({"professional_id": pid, "service_id": sid})\
+        r = supabase.table("professional_services")
+                    .insert({"professional_id": pid, "service_id": sid})
                     .execute().data[0]
         return jsonify(r), 201
     except Exception as e:
-        return jsonify({"error": "Falha ao associar", "details": str(e)}), 500
+        return jsonify({"error": "Falha ao associar serviço ao profissional", "details": str(e)}), 500
 
 @app.route("/api/professionals/<pid>/services/<sid>", methods=["DELETE"])
 @auth_required
 def remove_prof_service(pid, sid, business_id):
-    r = supabase.table("professional_services")\
-               .delete()\
-               .match({"professional_id": pid, "service_id": sid})\
+    r = supabase.table("professional_services")
+               .delete()
+               .match({"professional_id": pid, "service_id": sid})
                .execute().data
     if not r:
         return jsonify({"error": "Associação não encontrada"}), 404
@@ -270,9 +280,9 @@ def remove_prof_service(pid, sid, business_id):
 @auth_required
 def get_appointments(business_id):
     try:
-        r = supabase.table("appointments")\
-                   .select("*, service:services(name), professional:professionals(name)")\
-                   .eq("business_id", business_id)\
+        r = supabase.table("appointments")
+                   .select("*, service:services(name), professional:professionals(name)")
+                   .eq("business_id", business_id)
                    .execute().data
         return jsonify(r), 200
     except Exception as e:
@@ -282,16 +292,20 @@ def get_appointments(business_id):
 @auth_required
 def create_appointment(business_id):
     data = request.get_json(force=True)
+    # mapeia client_name/client_phone para customer_*
+    if "client_name" in data:
+        data["customer_name"] = data.pop("client_name")
+    if "client_phone" in data:
+        data["customer_phone"] = data.pop("client_phone")
     required = ["professional_id", "service_id", "customer_name", "customer_phone", "start_time"]
     if not all(k in data for k in required):
         return jsonify({"error": "Campos obrigatórios faltando"}), 400
 
     try:
-        # pega duração do serviço
-        svc = supabase.table("services")\
-                      .select("duration_minutes")\
-                      .eq("id", data["service_id"])\
-                      .single()\
+        svc = supabase.table("services")
+                      .select("duration_minutes")
+                      .eq("id", data["service_id"])
+                      .single()
                       .execute().data
         if not svc:
             return jsonify({"error": "Serviço não existe"}), 404
@@ -324,38 +338,34 @@ def available_professionals(business_id):
 
     try:
         start = datetime.fromisoformat(start_str)
-        # duração
-        svc = supabase.table("services")\
-                      .select("duration_minutes")\
-                      .eq("id", svc_id)\
-                      .single()\
+        svc = supabase.table("services")
+                      .select("duration_minutes")
+                      .eq("id", svc_id)
+                      .single()
                       .execute().data
         if not svc:
             return jsonify({"error": "Serviço não existe"}), 404
 
         end = start + timedelta(minutes=svc["duration_minutes"])
 
-        # quais profs fazem esse serviço?
-        link = supabase.table("professional_services")\
-                       .select("professional_id")\
-                       .eq("service_id", svc_id)\
+        link = supabase.table("professional_services")
+                       .select("professional_id")
+                       .eq("service_id", svc_id)
                        .execute().data
         prof_ids = [l["professional_id"] for l in link]
 
-        # quais estão ocupados?
-        busy = supabase.table("appointments")\
-                       .select("professional_id")\
-                       .eq("business_id", business_id)\
-                       .lt("start_time", end.isoformat())\
-                       .gt("end_time",   start.isoformat())\
+        busy = supabase.table("appointments")
+                       .select("professional_id")
+                       .eq("business_id", business_id)
+                       .lt("start_time", end.isoformat())
+                       .gt("end_time",   start.isoformat())
                        .execute().data
         busy_ids = {b["professional_id"] for b in busy}
 
-        # retorna livres
-        pros = supabase.table("professionals")\
-                       .select("id,name")\
-                       .eq("business_id", business_id)\
-                       .in_("id", prof_ids)\
+        pros = supabase.table("professionals")
+                       .select("id,name")
+                       .eq("business_id", business_id)
+                       .in_("id", prof_ids)
                        .execute().data
         free = [p for p in pros if p["id"] not in busy_ids]
         return jsonify(free), 200
