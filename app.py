@@ -264,10 +264,22 @@ def remove_prof_service(pid, sid, business_id):
 def get_appointments(business_id):
     try:
         r = supabase.table("appointments") \
-                   .select("*, service:services(name), professional:professionals(name)") \
-                   .eq("business_id", business_id) \
-                   .execute().data
+            .select("""
+                id,
+                customer_name,
+                customer_phone,
+                service_id,
+                professional_id,
+                start_time,
+                end_time,
+                service:services(name),
+                professional:professionals(name)
+            """) \
+            .eq("business_id", business_id) \
+            .execute().data
         return jsonify(r), 200
+    except Exception as e:
+        return jsonify({"error": "Falha ao buscar agendamentos", "details": str(e)}), 500
     except Exception as e:
         return jsonify({"error": "Falha ao buscar agendamentos", "details": str(e)}), 500
 
