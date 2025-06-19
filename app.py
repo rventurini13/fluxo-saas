@@ -367,9 +367,10 @@ def available_professionals(business_id):
                        .gt("end_time",   start.isoformat()) \
                        .execute().data
 
-        # Exclui o próprio agendamento caso esteja sendo editado
+        # Exclui o próprio agendamento da checagem de conflitos
+
         if appt_id:
-            busy = [b for b in busy if b["id"] != appt_id]
+            busy = [b for b in busy if str(b["id"]) != str(appt_id)]
 
         busy_ids = {b["professional_id"] for b in busy}
 
