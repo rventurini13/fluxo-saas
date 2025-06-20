@@ -99,7 +99,7 @@ def dashboard_stats(business_id):
     try:
         from pytz import timezone
 
-        # --- Fuso horário dinâmico por negócio
+        # --- Recupera o timezone do negócio
         tz_row = supabase.table("businesses") \
             .select("timezone") \
             .eq("id", business_id) \
@@ -107,12 +107,20 @@ def dashboard_stats(business_id):
             .execute().data
         tz_name = tz_row.get("timezone") or "America/Sao_Paulo"
         local_tz = timezone(tz_name)
-        now_local = datetime.now(local_tz)
 
-        start_of_day = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        # --- Data selecionada (por parâmetro) ou hoje
+        date_str = request.args.get("date")
+        if date_str:
+            selected = datetime.strptime(date_str, "%Y-%m-%d")
+            selected_local = local_tz.localize(selected)
+        else:
+            selected_local = datetime.now(local_tz)
+
+        start_of_day = selected_local.replace(hour=0, minute=0, second=0, microsecond=0)
         end_of_day = start_of_day + timedelta(days=1)
 
-        start_of_month = start_of_day.replace(day=1)
+        now_local = datetime.now(local_tz)
+        start_of_month = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
         # --- Carrega serviços e preços
         services = supabase.table("services") \
@@ -121,16 +129,17 @@ def dashboard_stats(business_id):
             .execute().data
         price_map = {s["id"]: s.get("price", 0.0) for s in services}
 
-        # --- Agendamentos de hoje
+        # --- Agendamentos do dia selecionado
         appts_today = supabase.table("appointments") \
-            .select("id, service_id, start_time") \
+            .select("id, service_id, start_time, customer_name, professional_id") \
             .eq("business_id", business_id) \
             .gte("start_time", start_of_day.isoformat()) \
             .lt("start_time", end_of_day.isoformat()) \
             .execute().data
+
         revenue_today = sum(price_map.get(a["service_id"], 0) for a in appts_today)
 
-        # --- Agendamentos no mês
+        # --- Agendamentos no mês (fixo na data atual)
         appts_month = supabase.table("appointments") \
             .select("service_id") \
             .eq("business_id", business_id) \
@@ -138,14 +147,13 @@ def dashboard_stats(business_id):
             .execute().data
         revenue_month = sum(price_map.get(a["service_id"], 0) for a in appts_month)
 
-        # --- Clientes novos (do mês)
+        # --- Clientes novos (do mês atual)
         old_clients = supabase.table("appointments") \
             .select("customer_phone") \
             .eq("business_id", business_id) \
             .lt("start_time", start_of_month.isoformat()) \
             .execute().data
         old_phones = {c["customer_phone"] for c in old_clients if c.get("customer_phone")}
-
         this_month = supabase.table("appointments") \
             .select("customer_phone") \
             .eq("business_id", business_id) \
@@ -158,7 +166,7 @@ def dashboard_stats(business_id):
         }
         new_clients = len(new_phones)
 
-        # --- Últimos 7 dias
+        # --- Últimos 7 dias (com base em hoje)
         appts_7d = []
         for i in range(6, -1, -1):
             day = now_local - timedelta(days=i)
@@ -199,8 +207,10 @@ def dashboard_stats(business_id):
         top = sorted(svc_counter.items(), key=lambda x: x[1], reverse=True)[:5]
         top_services = [{"service_id": sid, "count": count} for sid, count in top]
 
-        # --- Próximos agendamentos de hoje
-        upcoming = sorted(appts_today, key=lambda x: x["start_time"])
+        # --- Próximos agendamentos (somente se data >= hoje)
+        upcoming = []
+        if selected_local.date() >= now_local.date():
+            upcoming = sorted(appts_today, key=lambda x: x["start_time"])
 
         return jsonify({
             "appointmentsToday": len(appts_today),
