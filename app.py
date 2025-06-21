@@ -399,6 +399,25 @@ def remove_prof_service(pid, sid, business_id):
         return jsonify({"error": "Associação não encontrada"}), 404
     return jsonify({"message": "Associação removida"}), 200
 
+@app.route("/api/professionals/<pid>", methods=["PUT"])
+@auth_required
+def update_professional(pid, business_id):
+    req = request.get_json(force=True)
+    name = req.get("name")
+    if not name:
+        return jsonify({"error": "name é obrigatório"}), 400
+    try:
+        r = supabase.table("professionals") \
+            .update({"name": name}) \
+            .eq("id", pid) \
+            .eq("business_id", business_id) \
+            .execute().data
+        if not r:
+            return jsonify({"error": "Profissional não encontrado"}), 404
+        return jsonify(r[0]), 200
+    except Exception as e:
+        return jsonify({"error": "Falha ao atualizar profissional", "details": str(e)}), 500
+
 # -------------------
 # Agenda / Agendamentos
 # -------------------
