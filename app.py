@@ -790,86 +790,64 @@ def delete_appointment(aid, business_id):
     except Exception as e:
         return jsonify({"error": "Erro ao deletar agendamento", "details": str(e)}), 500
 
-from datetime import datetime
-from pytz import UTC
-
 @app.route("/api/available-professionals", methods=["GET"])
 @auth_required
 def available_professionals(business_id):
-    svc_id    = request.args.get("service_id")
-    start_utc = request.args.get("start_time")   # ex: "2025-06-29T18:00:00.000Z"
-    appt_id   = request.args.get("appointment_id")
+    svc_id = request.args.get("service_id")
+    start_str = request.args.get("start_time")
+    appt_id = request.args.get("appointment_id")  # opcional: usado na edição
 
-    # 1) Logs e validações iniciais
-    print(f"[DEBUG] Service ID recebido: {svc_id}")
-    print(f"[DEBUG] Start time raw (UTC): {start_utc}")
+    if not svc_id or not start_str:
+        return jsonify({"error": "service_id e start_time obrigatórios"}), 400
 
-    if not svc_id or not start_utc:
-        return jsonify({"error": "service_id e start_time são obrigatórios"}), 400
-
-    # 2) Converter UTC → timezone do negócio
     try:
-        # parse ISO + set UTC tzinfo
-        dt_utc = datetime.fromisoformat(start_utc.replace("Z", "+00:00"))
-        dt_utc = dt_utc.astimezone(UTC)
-        tz = get_local_tz(business_id)             # helper cached
-        dt_local = dt_utc.astimezone(tz)
-        print(f"[DEBUG] Horário convertido para local: {dt_local.isoformat()}")
-    except Exception as e:
-        print("[ERROR] Falha ao converter fuso:", e)
-        return jsonify({"error": "Formato de start_time inválido"}), 400
+        # ✅ NOVA VALIDAÇÃO: Verifica horário de funcionamento primeiro
+        is_valid, error_msg = validate_business_hours(business_id, start_str)
+        if not is_valid:
+            return jsonify({"error": error_msg, "available_professionals": []}), 200
 
-    # 3) Verificar business hours
-    valid, msg = validate_business_hours(business_id, dt_local.isoformat())
-    print(f"[DEBUG] Dentro do funcionamento? {valid}, {msg}")
-    if not valid:
-        return jsonify({"error": msg, "available_professionals": []}), 200
+        start = datetime.fromisoformat(start_str)
 
-    # 4) Pegar duração e lista de profissionais do serviço
-    svc = supabase.table("services") \
-                  .select("duration_minutes") \
-                  .eq("id", svc_id) \
-                  .single().execute().data
-    if not svc:
-        print("[DEBUG] Serviço não encontrado")
-        return jsonify({"error": "Serviço não existe"}), 404
+        svc = supabase.table("services") \
+            .select("duration_minutes") \
+            .eq("id", svc_id) \
+            .single() \
+            .execute().data
 
-    duration = svc["duration_minutes"]
-    prof_link = supabase.table("professional_services") \
-                        .select("professional_id") \
-                        .eq("service_id", svc_id) \
-                        .execute().data
-    prof_ids = [l["professional_id"] for l in prof_link]
-    print(f"[DEBUG] Profissionais habilitados para o serviço: {prof_ids}")
-    if not prof_ids:
-        return jsonify({"available_professionals": []}), 200
+        if not svc:
+            return jsonify({"error": "Serviço não existe"}), 404
 
-    # 5) Buscar todos os agendamentos que colidem no slot
-    start_iso = dt_local.isoformat()
-    end_iso   = (dt_local + timedelta(minutes=duration)).isoformat()
-    busy = supabase.table("appointments") \
-                   .select("id, professional_id") \
-                   .eq("business_id", business_id) \
-                   .lt("start_time", end_iso) \
-                   .gt("end_time", start_iso) \
-                   .execute().data
+        end = start + timedelta(minutes=svc["duration_minutes"])
 
-    # se for edição de agendamento, ignora o próprio registro
-    if appt_id:
-        busy = [b for b in busy if str(b["id"]) != str(appt_id)]
-    busy_ids = {b["professional_id"] for b in busy}
-    print(f"[DEBUG] Profissionais ocupados neste slot: {busy_ids}")
+        link = supabase.table("professional_services") \
+            .select("professional_id") \
+            .eq("service_id", svc_id) \
+            .execute().data
 
-    # 6) Montar lista final de profissionais livres
-    all_pros = supabase.table("professionals") \
-                       .select("id,name") \
-                       .eq("business_id", business_id) \
-                       .in_("id", prof_ids) \
-                       .execute().data
-    free = [p for p in all_pros if p["id"] not in busy_ids]
-    print(f"[DEBUG] Profissionais disponíveis: {[p['id'] for p in free]}")
+        prof_ids = [l["professional_id"] for l in link]
 
-    return jsonify(free), 200
+        busy = supabase.table("appointments") \
+            .select("id, professional_id") \
+            .eq("business_id", business_id) \
+            .lt("start_time", end.isoformat()) \
+            .gt("end_time", start.isoformat()) \
+            .execute().data
+
+        # Exclui o próprio agendamento da checagem de conflitos
+        if appt_id:
+            busy = [b for b in busy if str(b["id"]) != str(appt_id)]
+
+        busy_ids = {b["professional_id"] for b in busy}
+
+        pros = supabase.table("professionals") \
+            .select("id,name") \
+            .eq("business_id", business_id) \
+            .in_("id", prof_ids) \
+            .execute().data
+
+        free = [p for p in pros if p["id"] not in busy_ids]
+
+        return jsonify(free), 200
 
     except Exception as e:
         return jsonify({"error": "Falha ao buscar disponíveis", "details": str(e)}), 500
