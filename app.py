@@ -797,17 +797,25 @@ def available_professionals(business_id):
     start_str = request.args.get("start_time")
     appt_id = request.args.get("appointment_id")  # opcional: usado na edição
 
+    print(f"🔍 DEBUG - service_id: {svc_id}")
+    print(f"🔍 DEBUG - start_time: {start_str}")
+    print(f"🔍 DEBUG - business_id: {business_id}")
+
     if not svc_id or not start_str:
-        return jsonify({"error": "service_id e start_time obrigatórios"}), 400
+        return jsonify({"error": "service_id e start_time obrigatórios", "available_professionals": []}), 400
 
     try:
-        # ✅ NOVA VALIDAÇÃO: Verifica horário de funcionamento primeiro
+        # ✅ VALIDAÇÃO: Verifica horário de funcionamento primeiro
         is_valid, error_msg = validate_business_hours(business_id, start_str)
+        print(f"🔍 DEBUG - Horário válido: {is_valid}, Erro: {error_msg}")
+        
         if not is_valid:
             return jsonify({"error": error_msg, "available_professionals": []}), 200
 
-        start = datetime.fromisoformat(start_str)
+        start = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+        print(f"🔍 DEBUG - start datetime: {start}")
 
+        # Buscar serviço
         svc = supabase.table("services") \
             .select("duration_minutes") \
             .eq("id", svc_id) \
@@ -815,42 +823,64 @@ def available_professionals(business_id):
             .execute().data
 
         if not svc:
-            return jsonify({"error": "Serviço não existe"}), 404
+            return jsonify({"error": "Serviço não existe", "available_professionals": []}), 404
+
+        print(f"🔍 DEBUG - Serviço encontrado: {svc}")
 
         end = start + timedelta(minutes=svc["duration_minutes"])
+        print(f"🔍 DEBUG - end datetime: {end}")
 
+        # Buscar profissionais que fazem este serviço
         link = supabase.table("professional_services") \
             .select("professional_id") \
             .eq("service_id", svc_id) \
             .execute().data
 
         prof_ids = [l["professional_id"] for l in link]
+        print(f"🔍 DEBUG - Profissionais do serviço: {prof_ids}")
 
+        if not prof_ids:
+            return jsonify({"error": "Nenhum profissional cadastrado para este serviço", "available_professionals": []}), 200
+
+        # Buscar agendamentos conflitantes
         busy = supabase.table("appointments") \
-            .select("id, professional_id") \
+            .select("id, professional_id, start_time, end_time") \
             .eq("business_id", business_id) \
             .lt("start_time", end.isoformat()) \
             .gt("end_time", start.isoformat()) \
             .execute().data
 
+        print(f"🔍 DEBUG - Agendamentos conflitantes: {busy}")
+
         # Exclui o próprio agendamento da checagem de conflitos
         if appt_id:
             busy = [b for b in busy if str(b["id"]) != str(appt_id)]
+            print(f"🔍 DEBUG - Após excluir agendamento atual: {busy}")
 
         busy_ids = {b["professional_id"] for b in busy}
+        print(f"🔍 DEBUG - IDs dos profissionais ocupados: {busy_ids}")
 
+        # Buscar todos os profissionais do serviço
         pros = supabase.table("professionals") \
-            .select("id,name") \
+            .select("id, name") \
             .eq("business_id", business_id) \
             .in_("id", prof_ids) \
             .execute().data
 
-        free = [p for p in pros if p["id"] not in busy_ids]
+        print(f"🔍 DEBUG - Todos profissionais: {pros}")
 
-        return jsonify(free), 200
+        # Filtrar apenas os livres
+        free = [p for p in pros if p["id"] not in busy_ids]
+        print(f"🔍 DEBUG - Profissionais livres: {free}")
+
+        # ✅ RETORNO CORRETO: Estrutura que o frontend espera
+        return jsonify({"available_professionals": free}), 200
 
     except Exception as e:
-        return jsonify({"error": "Falha ao buscar disponíveis", "details": str(e)}), 500
+        print(f"❌ ERRO: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "Falha ao buscar disponíveis", "details": str(e), "available_professionals": []}), 500
 
 # ------------------
 # Horários de Funcionamento (Opcional)
